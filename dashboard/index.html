@@ -355,7 +355,42 @@ function sheetUrlToExportCsvUrl(url){
   return 'https://docs.google.com/spreadsheets/d/'+id+'/export?format=csv&gid='+gid;
 }
 
-async function fetchSheetCsv(url,useExport){
+
+/* ── Sheet-size guard ───────────────────────────────────────────────────────────────────────────
+   The lead sheets are rewritten by an automated job; a read during the rewrite returns only part of the tab, with no
+   error (seen 19 Nov 2026: Hero Sep'26 gave 12,000 of 84,125 rows). Each browser remembers each sheet's last row count:
+   a read under 80% of it is retried twice, 15 s apart, and if it is still short the dashboard loads it but shows a
+   warning bar instead of quietly showing low numbers. A sheet that stays smaller for 3 loads becomes the new normal. */
+const _sheetWarned = new Set();
+function sheetRowCount(text){ let n=0, i=-1; while((i=text.indexOf('\n', i+1))!==-1) n++; return n; }
+function sheetWarnBar(){
+  let el=document.getElementById('sheet-warn');
+  if(!_sheetWarned.size){ if(el) el.remove(); return; }
+  if(!el){ el=document.createElement('div'); el.id='sheet-warn';
+    el.style.cssText='position:fixed;top:0;left:0;right:0;z-index:99999;background:#b45309;color:#fff;font:600 13px/1.45 system-ui,sans-serif;padding:8px 14px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.25)';
+    document.body.appendChild(el); }
+  el.textContent='⚠ '+[..._sheetWarned.values()].map(w=>w.msg).join('  ·  ')+' — the source is probably being updated, so numbers may be incomplete. Sync / refresh again in a few minutes.';
+}
+async function guardedSheetText(key, label, fetchText){
+  const K='sheetRows:'+key; let prev=null;
+  try{ prev=JSON.parse(localStorage.getItem(K)||'null'); }catch(e){}
+  const short=n=>prev && prev.n>500 && n<0.8*prev.n;
+  let text=await fetchText(), n=sheetRowCount(text);
+  for(let k=0; k<2 && short(n); k++){ await new Promise(r=>setTimeout(r,15000)); text=await fetchText(); n=sheetRowCount(text); }
+  const warnKey=[..._sheetWarned].find(w=>w.key===key); if(warnKey) _sheetWarned.delete(warnKey);
+  if(short(n)){
+    const low=(prev.low||0)+1;
+    try{ localStorage.setItem(K, JSON.stringify(low>=3 ? {n:n, low:0} : {n:prev.n, low:low})); }catch(e){}
+    _sheetWarned.add({key:key, msg:label+' returned '+n.toLocaleString('en-IN')+' rows vs '+prev.n.toLocaleString('en-IN')+' last time'});
+  } else {
+    try{ localStorage.setItem(K, JSON.stringify({n:n, low:0})); }catch(e){}
+  }
+  sheetWarnBar();
+  return text;
+}
+function sheetLabel(url){ const e=Object.entries(HERO_LEAD_MASTER_BY_MONTH).find(([m,u])=>u===url); return e ? 'Lead Master '+e[0] : 'Retail sheet'; }
+async function fetchSheetCsv(url,useExport){ return guardedSheetText(url, sheetLabel(url), ()=>fetchSheetCsvRaw(url,useExport)); }
+async function fetchSheetCsvRaw(url,useExport){
   const csvUrl=useExport?sheetUrlToExportCsvUrl(url):sheetUrlToCsvUrl(url);
   let res;
   try{ res=await fetch(csvUrl,{cache:'no-store'}); }
