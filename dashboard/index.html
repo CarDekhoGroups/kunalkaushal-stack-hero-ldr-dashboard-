@@ -576,8 +576,12 @@ function parseHeroDate(s){
   s=String(s).trim();
   if(!s)return null;
   // YYYY-MM-DD HH:mm:ss or YYYY-MM-DD HH:mm (datetime with space or T separator, e.g. "2026-08-20 12:35:09")
-  const mdt=s.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})[\sT]\d{2}:\d{2}/);
+  // (hour may be one digit: the retail sheet writes "2026-11-13 8:42:05" - those retails used to be dropped)
+  const mdt=s.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})[\sT]\d{1,2}:\d{2}/);
   if(mdt)return new Date(+mdt[1],+mdt[2]-1,+mdt[3]);
+  // YYYY-Mon-DD, optionally with a time (some lead masters write "2026-Nov-12")
+  const mym=s.match(/^(\d{4})[\-\/\s]([A-Za-z]{3,9})[\-\/\s](\d{1,2})(?:$|[\sT])/);
+  if(mym){const mi=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].findIndex(n=>mym[2].toLowerCase().startsWith(n));if(mi>=0)return new Date(+mym[1],mi,+mym[3]);}
   // YYYY-MM-DD or YYYY/MM/DD
   const m1=s.match(/^(\d{4})[\/\-](\d{2})[\/\-](\d{2})$/);
   if(m1)return new Date(+m1[1],+m1[2]-1,+m1[3]);
